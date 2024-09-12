@@ -1,7 +1,8 @@
 const axios = require('axios').default
 const WebSocket = require('ws')
 
-const entry = 'wss://api.sgroup.qq.com/websocket/'
+const isDev = !!process.env.DEV
+const entry = `wss://${isDev ? 'sandbox.' : ''}api.sgroup.qq.com/websocket/`
 
 /**
  * @typedef GatewayInfo
@@ -21,7 +22,7 @@ const getGateway = async ({
   appId = '',
 }) => {
   try {
-    const { data } = await axios.get('https://api.sgroup.qq.com/gateway/bot', {
+    const { data } = await axios.get(`https://${isDev ? 'sandbox.' : ''}api.sgroup.qq.com/gateway/bot`, {
       headers: {
         'Authorization': `QQBot ${accessToken}`,
         'X-Union-Appid': appId,

@@ -5,6 +5,7 @@ const getGateway = require('./auth/getGateway')
 const { getClient } = require('./auth/getGateway')
 const { OpCode } = require('./types')
 
+const isDev = !!process.env.DEV
 const debug = require('debug')('qqbot')
 
 const symAppId = Symbol('appId')
@@ -37,7 +38,7 @@ class QQBot {
     if (this.isPrivate) {
       vals.push(9, 28)
     } else {
-      vals.push(30)
+      vals.push(25, 30)
     }
     return vals.map(i => 1 << i).reduce((p, c) => p + c, 0)
   }
@@ -73,7 +74,7 @@ class QQBot {
   }
   async _sendRequestPack (url, pack) {
     debug('_sendRequestPack', url, pack)
-    const { data } = await axios.post(`https://api.sgroup.qq.com${url}`, pack, {
+    const { data } = await axios.post(`https://${isDev ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack, {
       headers: {
         Authorization: `QQBot ${this.accessToken}`,
         'X-Union-Appid': this[symAppId]

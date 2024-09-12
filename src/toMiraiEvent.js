@@ -83,11 +83,69 @@ const ChannelMessage = (event, bot) => {
     recall () {}
   }
 }
+const FriendMessage = (event, bot) => {
+  /**id	string	平台方消息ID，可以用于被动消息发送
+author	object	发送者
+content	string	文本消息内容
+timestamp	string	消息生产时间（RFC3339）
+attachments	object[]	富媒体文件附件，文件类型："图片，语音，视频，文件" */
+  const { id, author, content, timestamp, attachments } = event.d
+  const messageChain = toMiraiMessage(content, attachments)
+  const sender = {
+    id,
+    name: id,
+    remark: id,
+  }
+  const reply = msg => {
+    const pack = fromMiraiMessage(msg)
+    return bot._sendRequestPack(`/v2/users/${id}/messages`, {
+      content: pack.content,
+      image: pack.image,
+      msg_id: event.id,
+    })
+  }
+  return {
+    type: 'FriendMessage',
+    sender, messageChain,
+    reply, quoteReply: reply,
+    recall () {}
+  }
+}
+const GroupMessage = (event, bot) => {
+  const { id, author, content, timestamp, attachments } = event.d
+  const messageChain = toMiraiMessage(content, attachments)
+  const sender = {
+    id,
+    name: id,
+    remark: id,
+  }
+  const reply = msg => {
+    const pack = fromMiraiMessage(msg)
+    return bot._sendRequestPack(`/v2/users/${id}/messages`, {
+      ...pack,
+      msg_id: event.id,
+    })
+  }
+  return {
+    type: 'FriendMessage',
+    sender, messageChain,
+    reply, quoteReply: reply,
+    recall () {}
+  }
+}
 const toMiraiEvent = (event, bot) => {
   if (typeof event !== 'object' || event === null) return null
   switch (event.t) {
     case 'MESSAGE_CREATE':
+    case 'GROUP_AT_MESSAGE_CREATE':
+    case 'C2C_MESSAGE_CREATE': // TODO: this may cause something error
       return ChannelMessage(event, bot)
+    case 'FRIEND_ADD':
+    case 'FRIEND_DEL':
+    case 'GROUP_ADD_ROBOT':
+    case 'GROUP_DEL_ROBOT':
+      // TODO:
+      return
   }
   return null
 }

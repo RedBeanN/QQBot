@@ -2,9 +2,18 @@ const NodeMirai = require("node-mirai-sdk")
 const QQBot = require(".")
 const { toMiraiEvent } = require("./toMiraiEvent")
 const { OpCode } = require("./types")
+const { readFileSync } = require('fs')
 
 const unsupport = (msg) => {
   console.warn(`Unsupported method ${msg}`)
+}
+/** @param { ReadableStream } stream */
+const streamToBuffer = async (stream) => {
+  const bufs = []
+  for await (const data of stream) {
+    bufs.push(data)
+  }
+  return Buffer.concat(bufs)
 }
 
 const createAdapter = (appId, secret, isPrivate = true) => {
@@ -44,6 +53,34 @@ const createAdapter = (appId, secret, isPrivate = true) => {
         await handler(event, instance)
       }
     },
+    /**
+     * @param { string|Buffer|ReadableStream } image
+     * @param { NodeMirai.message } message
+     */
+    async uploadImage (image, message) {
+      const senderId = message?.sender?.id || message
+      if (typeof senderId !== 'number' || isNaN(senderId)) {
+        throw new Error(`Error @ uploadImage: Expect pass message with sender.id but got ${senderId}`)
+      }
+      const toUpload = typeof image === 'string'
+        ? 'base64://' + readFileSync(image, 'base64')
+        : image instanceof Buffer
+          ? 'base64://' + image.toString('base64')
+          : 'base64://' + (await streamToBuffer(image)).toString('base64')
+      const res = await bot._sendRequestPack(`/v2/users/${senderId}/files`, {
+        file_type: 1,
+        url: toUpload,
+        srv_send_msg: false,
+      })
+      return {
+        url: toUpload,
+        imageId: res.file_info,
+      }
+    },
+    async sendImageMessage (image, message) {
+      const img = await this.uploadImage(image, message)
+      return bot._sendRequestPack(``)
+    },
     auth () { return unsupport('auth')},
     verify () { return unsupport('verify')},
     release () { return unsupport('release')},
@@ -51,10 +88,8 @@ const createAdapter = (appId, secret, isPrivate = true) => {
     sendFriendMessage () { return unsupport('sendFriendMessage') },
     sendGroupMessage () { return unsupport('sendGroupMessage') },
     sendTempMessage () { return unsupport('sendTempMessage') },
-    sendImageMessage () { return unsupport('sendImageMessage') },
     sendVoiceMessage () { return unsupport('sendVoiceMessage') },
     sendFlashImageMessage () { return unsupport('sendFlashImageMessage') },
-    uploadImage () { return unsupport('uploadImage') },
     uploadVoice () { return unsupport('uploadVoice') },
     sendMessage () { return unsupport('sendMessage') },
     sendQuotedFriendMessage () { return unsupport('sendQuotedFriendMessage') },
