@@ -9,7 +9,8 @@ const getAccessToken = async ({
     appId,
     clientSecret
   })
-  return data?.access_token || ''
+  // console.log('get access token', data)
+  return data
 }
 
 module.exports = getAccessToken

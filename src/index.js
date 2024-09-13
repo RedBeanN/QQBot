@@ -1,9 +1,10 @@
-const { WebSocket } = require('ws')
+const { WebSocket, CLOSED, OPEN } = require('ws')
 const { default: axios } = require('axios')
 const getAccessToken = require('./auth/getAccessToken')
 const getGateway = require('./auth/getGateway')
 const { getClient } = require('./auth/getGateway')
 const { OpCode } = require('./types')
+const { resolve } = require('path')
 
 const isDev = !!process.env.DEV
 const debug = require('debug')('qqbot')
@@ -17,19 +18,30 @@ const symSecret = Symbol('clientSecret')
 
 class QQBot {
   /**
-   * @param { string } appId
-   * @param { string } clientSecret
-   * @param { boolean } [isPrivate]
+   * @param { object } config
+   * @param { string } config.appId
+   * @param { string } config.clientSecret
+   * @param { string } config.tmpdir
+   * @param { number } config.serverPort
+   * @param { boolean } [config.isPrivate]
    */
-  constructor (appId, clientSecret, isPrivate = false) {
+  constructor ({
+    appId,
+    clientSecret,
+    isPrivate = false,
+  }) {
     this[symAppId] = appId
     this[symSecret] = clientSecret
     this.accessToken = ''
+    this.accessTokenExpires = Date.now()
     /** @type { Map<number, Handler[]> } */
     this.eventHandlers = new Map()
     this.isPrivate = isPrivate
     this.syncCode = -1
     this.heartbeat = null
+    this.sessionId = ''
+    this.initted = false
+    this.resuming = false
     this.init()
   }
   get intents () {
@@ -42,33 +54,79 @@ class QQBot {
     }
     return vals.map(i => 1 << i).reduce((p, c) => p + c, 0)
   }
-  async refreshAccessToken () {
-    this.accessToken = await getAccessToken({
+  async refreshAccessToken (force = false) {
+    if (Date.now() < this.accessTokenExpires) {
+      // 初始化的时候要强制刷新，否则返回现有的
+      if (!force) {
+        // debug(`Use old access token since not expired`)
+        return this.accessToken
+      }
+    }
+    const data = await getAccessToken({
       appId: this[symAppId],
       clientSecret: this[symSecret]
     })
+    this.accessToken = data.access_token
+    const time = new Date()
+    // 到期前的60秒内才会刷新
+    time.setSeconds(time.getSeconds() + Number(data.expires_in) - 50)
+    debug(`Updated access token. Next time to update: ${time.toLocaleTimeString()}`)
+    this.accessTokenExpires = time.valueOf()
     return this.accessToken
   }
   async init () {
-    const token = await this.refreshAccessToken()
+    const token = await this.refreshAccessToken(true)
     this.wsGateWay = await getGateway({
       accessToken: token,
       appId: this[symAppId]
     })
     debug('gateway', this.wsGateWay)
+    // debug('gateway reset at', this.wsGateWay.session_start_limit.reset_after / 60_000)
+    if (this.wsGateWay.session_start_limit.remaining < 1) {
+      console.error(`Cannot establish ws connection. Remaining session count is ${this.wsGateWay.session_start_limit.remaining}`)
+      const r = this.wsGateWay.session_start_limit.reset_after
+      const time = `${Math.floor(r / 3600_000)}h${Math.floor((r % 3600_000) / 60_000)}m${Math.floor((r % 60_000) / 1_000)}s${r % 1000}ms`
+      console.error(`The limit will be reset after ${time}`)
+      throw new Error('Abort: Session Limit Exceeded')
+    }
+    if (this.wsClient) {
+      this.wsClient.removeAllListeners()
+      this.wsClient.close()
+      this.wsClient = null
+    }
     this.wsClient = new WebSocket(this.wsGateWay.url)
     this.wsClient.on('message', msg => {
       const event = JSON.parse(msg)
       this._onEvent(event)
     })
+    this.wsClient.on('close', (code, msg) => {
+      debug(`WSClient closed with code ${code}: ${msg.toString()}`)
+      // 4009	连接过期，请重连并执行 resume 进行重新连接
+      // https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/error-trace/websocket.html
+      if (code === 4009) {
+        this.init()
+      } else {
+        console.error(`WSClient closed with code ${code}: ${msg.toString()}`)
+        throw new Error('Abort: WS Client Closed.')
+      }
+    })
     const onHello = (event) => {
       debug('onHello', event)
       this.off(onHello)
-      this._sendIdentify()
+      this._sendHeartBeat()
+      if (this.initted) {
+        this._sendResume()
+      } else {
+        this._sendIdentify()
+      }
       clearInterval(this.heartbeat)
+      const interval = event.d?.heartbeat_interval || 30000
+      debug(`Set heartbeat interval to ${interval}`)
       this.heartbeat = setInterval(() => {
+        this.refreshAccessToken()
         this._sendHeartBeat()
-      }, 30000)
+      }, interval)
+      this.initted = true
     }
     this.on(OpCode.Hello, onHello)
   }
@@ -79,11 +137,27 @@ class QQBot {
         Authorization: `QQBot ${this.accessToken}`,
         'X-Union-Appid': this[symAppId]
       }
+    }).catch(e => {
+      console.log(e?.response?.data)
+      return {
+        data: {
+          error: true
+        }
+      }
     })
     return data
   }
   async _sendWsPack (pack) {
-    debug('_sendWsPack', pack)
+    if (this.wsClient.readyState === CLOSED) { // CLOSED
+      debug('_sendWsPack wait for client reconnect', this.wsClient.readyState)
+      while (this.wsClient.readyState !== OPEN) { // OPEN
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      debug('_sendWsPack client is ready!')
+    }
+    if (pack.op !== OpCode['Heartbeat']) {
+      debug('_sendWsPack', pack)
+    }
     this.wsClient.send(JSON.stringify(pack))
   }
   async _sendIdentify () {
@@ -96,6 +170,22 @@ class QQBot {
         properties: {
           dev: 'RedBeanN'
         },
+      }
+    }
+    this._sendWsPack(pack)
+  }
+  async _sendResume () {
+    if (this.resuming) {
+      debug(`Skip _sendResume since is resuming`)
+      return
+    }
+    this.resuming = true
+    const pack ={
+      op: OpCode['Resume'],
+      d: {
+        token: `QQBot ${this.accessToken}`,
+        session_id: this.sessionId,
+        seq: this.syncCode,
       }
     }
     this._sendWsPack(pack)
@@ -120,6 +210,16 @@ class QQBot {
     }
     event.type = type
     debug('onEvent', event)
+    if (event.t === 'READY') {
+      const id = event.d?.session_id
+      if (id) {
+        this.sessionId = id
+        this._user = event.d?.user
+      }
+    } else if (event.t === 'RESUMED') {
+      this.resuming = false
+      debug(`Resummed`)
+    }
     if (this.eventHandlers.has(op)) {
       let stopped = false
       event.stop = () => {

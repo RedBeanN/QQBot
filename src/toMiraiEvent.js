@@ -1,6 +1,13 @@
 const { MessageComponent } = require('node-mirai-sdk')
 const { Plain, Image } = MessageComponent
 
+const debug = require('debug')('mirai-event')
+
+const getApi = require('./getApi')
+const idmap = require('./db/idmap')
+
+let messageId = 1
+
 const toMiraiMessage = (content = '', attachments = []) => {
   const messages = []
   if (content) messages.push(Plain(content))
@@ -10,6 +17,13 @@ const toMiraiMessage = (content = '', attachments = []) => {
       messages.push(Image({
         url: url.startsWith('http') ? url : ('http://' + url)
       }))
+    } else if (att.content_type.startsWith('file')) {
+      const { filename, url } = att
+      messages.push({
+        type: 'File',
+        filename,
+        url,
+      })
     }
   }
   return messages
@@ -34,16 +48,62 @@ const fromMiraiMessage = messages => {
         break
     }
   }
-  return {
+  const ret = {
     content,
-    image,
     msg_type: attachments.length ? 1 : 0,
+  }
+  if (image) {
+    ret.image = image
+  }
+  return ret
+}
+const replyPack = messages => {
+  if (typeof messages === 'string') {
+    return {
+      content: messages,
+      msg_type: 0
+    }
+  }
+  const attachments = []
+  let content = ''
+  if (Array.isArray(messages)) {
+    for (const chain of messages) {
+      if (typeof chain === 'string') {
+        content += chain
+        continue
+      }
+      switch (chain.type) {
+        case 'Plain':
+          content += chain.text
+          break
+        case 'Image':
+          attachments.push(chain.imageId)
+          break
+      }
+    }
+  }
+  if (attachments.length) {
+    const packs = attachments.map(media => {
+      return {
+        msg_type: 7,
+        media,
+      }
+    })
+    if (content.trim()) {
+      packs[0].content = content.trim()
+    }
+    return packs
+  }
+  return {
+    msg_type: 0,
+    content,
   }
 }
 const ChannelMessage = (event, bot) => {
-  const { author, content, attachments, channel_id, member, guild_id, id } = event.d
+  const { author, content, attachments, channel_id, group_openid, member, guild_id, id } = event.d
   const messageChain = toMiraiMessage(content, attachments)
-  const isGroup = channel_id && member
+  const api = getApi(event)
+  const isGroup = Boolean(channel_id && member || group_openid)
   const sender = isGroup
     ? {
       id: author.id,
@@ -53,8 +113,8 @@ const ChannelMessage = (event, bot) => {
       joinTimestamp: (new Date(member.joined_at)).valueOf(),
       lastSpeakTimestamp: Date.now(),
       group: {
-        id: channel_id,
-        name: channel_id,
+        id: channel_id || group_openid,
+        name: channel_id || group_openid,
         permission: 'MEMBER'
       }
     }
@@ -65,86 +125,137 @@ const ChannelMessage = (event, bot) => {
     }
   const reply = msg => {
     const pack = fromMiraiMessage(msg)
-    const url = isGroup
-      ? `/channels/${channel_id}/messages`
-      : `/v2/users/${author.id}/messages`
+    const url = `${getApi(event)}messages`
     return bot._sendRequestPack(url, {
-      content: pack.content,
-      image: pack.image,
-      msg_id: event.id,
+      ...pack,
+      msg_id: event.d.id,
     })
   }
   return {
     type: isGroup ? 'GroupMessage' : 'FriendMessage',
+    messageId: event.d.id,
     sender,
     messageChain,
     reply,
     quoteReply: reply,
-    recall () {}
+    recall () {},
+    __meta: {
+      api,
+      msg_id: id
+    }
   }
 }
-const FriendMessage = (event, bot) => {
-  /**id	string	平台方消息ID，可以用于被动消息发送
-author	object	发送者
-content	string	文本消息内容
-timestamp	string	消息生产时间（RFC3339）
-attachments	object[]	富媒体文件附件，文件类型："图片，语音，视频，文件" */
+const FriendMessage = async (event, bot) => {
   const { id, author, content, timestamp, attachments } = event.d
   const messageChain = toMiraiMessage(content, attachments)
+  const realId = author.user_openid
+  const virtualId = await idmap.getVirtualId(realId)
   const sender = {
-    id,
-    name: id,
-    remark: id,
+    id: virtualId,
+    name: realId,
+    remark: realId,
   }
-  const reply = msg => {
-    const pack = fromMiraiMessage(msg)
-    return bot._sendRequestPack(`/v2/users/${id}/messages`, {
-      content: pack.content,
-      image: pack.image,
-      msg_id: event.id,
-    })
+  const api = getApi(event)
+  const reply = async msg => {
+    const pack = replyPack(msg)
+    if (Array.isArray(pack)) {
+      let lastRes = null
+      for (const p of pack) {
+        lastRes = await bot._sendRequestPack(`${api}messages`, {
+          ...p,
+          msg_id: event.d.id,
+        })
+      }
+      return lastRes
+    } else {
+      return bot._sendRequestPack(`${api}messages`, {
+        ...pack,
+        msg_id: event.d.id,
+      })
+    }
   }
   return {
     type: 'FriendMessage',
+    messageId: messageId++,
     sender, messageChain,
     reply, quoteReply: reply,
-    recall () {}
+    recall () {},
+    __meta: {
+      api,
+      msg_id: event.d.id,
+    },
   }
 }
-const GroupMessage = (event, bot) => {
-  const { id, author, content, timestamp, attachments } = event.d
+const GroupMessage = async (event, bot) => {
+  const { id, author, content, timestamp, attachments, group_openid } = event.d
   const messageChain = toMiraiMessage(content, attachments)
+  const api = getApi(event)
+  const realSid = author.member_openid
+  const virtualSid = await idmap.getVirtualId(realSid)
+  const virtualGid = await idmap.getVirtualId(group_openid)
   const sender = {
-    id,
-    name: id,
-    remark: id,
+    id: virtualSid,
+    memberName: realSid,
+    specialTitle: '',
+    permission: 'MEMBER',
+    joinTimestamp: 0,
+    lastSpeakTimestamp: Date.now(),
+    group: {
+      id: virtualGid,
+      name: group_openid,
+      permission: 'MEMBER',
+    },
   }
-  const reply = msg => {
-    const pack = fromMiraiMessage(msg)
-    return bot._sendRequestPack(`/v2/users/${id}/messages`, {
-      ...pack,
-      msg_id: event.id,
-    })
+  const reply = async msg => {
+    const pack = replyPack(msg)
+    if (Array.isArray(pack)) {
+      let lastRes = null
+      for (const p of pack) {
+        lastRes = await bot._sendRequestPack(`${api}messages`, {
+          ...p,
+          msg_id: event.d.id,
+        })
+      }
+      return lastRes
+    } else {
+      return bot._sendRequestPack(`${api}messages`, {
+        ...pack,
+        msg_id: event.d.id,
+      })
+    }
   }
   return {
-    type: 'FriendMessage',
+    type: 'GroupMessage',
+    messageId: messageId++,
     sender, messageChain,
     reply, quoteReply: reply,
-    recall () {}
+    recall () {},
+    __meta: {
+      api,
+      msg_id: id,
+    },
   }
 }
 const toMiraiEvent = (event, bot) => {
   if (typeof event !== 'object' || event === null) return null
   switch (event.t) {
     case 'MESSAGE_CREATE':
-    case 'GROUP_AT_MESSAGE_CREATE':
-    case 'C2C_MESSAGE_CREATE': // TODO: this may cause something error
       return ChannelMessage(event, bot)
+    case 'GROUP_AT_MESSAGE_CREATE':
+      return GroupMessage(event, bot)
+    case 'C2C_MESSAGE_CREATE':
+      return FriendMessage(event, bot)
+    case 'READY':
+      return {
+        type: 'authed',
+      }
     case 'FRIEND_ADD':
     case 'FRIEND_DEL':
     case 'GROUP_ADD_ROBOT':
     case 'GROUP_DEL_ROBOT':
       // TODO:
+    default:
+      debug(`Received unrecognized event ${event.t}`)
       return
   }
   return null

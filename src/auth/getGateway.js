@@ -8,11 +8,11 @@ const entry = `wss://${isDev ? 'sandbox.' : ''}api.sgroup.qq.com/websocket/`
  * @typedef GatewayInfo
  * @prop { string } url
  * @prop { number } shards
- * @prop { Object } session_start_limie
- * @prop { number } session_start_limie.total
- * @prop { number } session_start_limie.remaining
- * @prop { number } session_start_limie.reset_after
- * @prop { number } session_start_limie.max_concurrency
+ * @prop { Object } session_start_limit
+ * @prop { number } session_start_limit.total
+ * @prop { number } session_start_limit.remaining
+ * @prop { number } session_start_limit.reset_after
+ * @prop { number } session_start_limit.max_concurrency
  */
 /**
  * @returns { GatewayInfo }
