@@ -156,6 +156,7 @@ const FriendMessage = async (event, bot) => {
     remark: realId,
   }
   const api = getApi(event)
+  let msg_seq = 0
   const reply = async msg => {
     const pack = replyPack(msg)
     if (Array.isArray(pack)) {
@@ -164,6 +165,7 @@ const FriendMessage = async (event, bot) => {
         lastRes = await bot._sendRequestPack(`${api}messages`, {
           ...p,
           msg_id: event.d.id,
+          msg_seq: msg_seq++,
         })
       }
       return lastRes
@@ -171,6 +173,7 @@ const FriendMessage = async (event, bot) => {
       return bot._sendRequestPack(`${api}messages`, {
         ...pack,
         msg_id: event.d.id,
+        msg_seq: msg_seq++,
       })
     }
   }
@@ -206,6 +209,7 @@ const GroupMessage = async (event, bot) => {
       permission: 'MEMBER',
     },
   }
+  let msg_seq = 0
   const reply = async msg => {
     const pack = replyPack(msg)
     if (Array.isArray(pack)) {
@@ -214,6 +218,7 @@ const GroupMessage = async (event, bot) => {
         lastRes = await bot._sendRequestPack(`${api}messages`, {
           ...p,
           msg_id: event.d.id,
+          msg_seq: msg_seq++,
         })
       }
       return lastRes
@@ -221,6 +226,7 @@ const GroupMessage = async (event, bot) => {
       return bot._sendRequestPack(`${api}messages`, {
         ...pack,
         msg_id: event.d.id,
+        msg_seq: msg_seq++,
       })
     }
   }
