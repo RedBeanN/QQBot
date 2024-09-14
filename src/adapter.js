@@ -135,6 +135,7 @@ const createAdapter = ({
         // media: img.imageId,
         media: img.imageId,
         msg_id: message.__meta.msg_id,
+        msg_seq: message.__meta.msg_seq++,
       })
     },
     async sendMarkdown (md, message) {

@@ -1,5 +1,5 @@
 const { MessageComponent } = require('node-mirai-sdk')
-const { Plain, Image } = MessageComponent
+const { Plain } = MessageComponent
 
 const debug = require('debug')('mirai-event')
 
@@ -12,17 +12,23 @@ const toMiraiMessage = (content = '', attachments = []) => {
   const messages = []
   if (content) messages.push(Plain(content))
   for (const att of attachments) {
+    console.log(att)
     if (att.content_type.startsWith('image')) {
-      const { url, width, height } = att
-      messages.push(Image({
-        url: url.startsWith('http') ? url : ('http://' + url)
-      }))
+      const { url, width, height, size } = att
+      messages.push({
+        type: 'Image',
+        url: url.startsWith('http') ? url : ('http://' + url),
+        width,
+        height,
+        size,
+      })
     } else if (att.content_type.startsWith('file')) {
-      const { filename, url } = att
+      const { filename, url, size } = att
       messages.push({
         type: 'File',
         filename,
         url,
+        size,
       })
     }
   }
@@ -156,7 +162,6 @@ const FriendMessage = async (event, bot) => {
     remark: realId,
   }
   const api = getApi(event)
-  let msg_seq = 0
   const reply = async msg => {
     const pack = replyPack(msg)
     if (Array.isArray(pack)) {
@@ -165,7 +170,7 @@ const FriendMessage = async (event, bot) => {
         lastRes = await bot._sendRequestPack(`${api}messages`, {
           ...p,
           msg_id: event.d.id,
-          msg_seq: msg_seq++,
+          msg_seq: message.__meta.msg_seq++,
         })
       }
       return lastRes
@@ -173,11 +178,11 @@ const FriendMessage = async (event, bot) => {
       return bot._sendRequestPack(`${api}messages`, {
         ...pack,
         msg_id: event.d.id,
-        msg_seq: msg_seq++,
+        msg_seq: message.__meta.msg_seq++,
       })
     }
   }
-  return {
+  const message = {
     type: 'FriendMessage',
     messageId: messageId++,
     sender, messageChain,
@@ -186,8 +191,10 @@ const FriendMessage = async (event, bot) => {
     __meta: {
       api,
       msg_id: event.d.id,
+      msg_seq: 0,
     },
   }
+  return message
 }
 const GroupMessage = async (event, bot) => {
   const { id, author, content, timestamp, attachments, group_openid } = event.d
@@ -209,7 +216,6 @@ const GroupMessage = async (event, bot) => {
       permission: 'MEMBER',
     },
   }
-  let msg_seq = 0
   const reply = async msg => {
     const pack = replyPack(msg)
     if (Array.isArray(pack)) {
@@ -218,7 +224,7 @@ const GroupMessage = async (event, bot) => {
         lastRes = await bot._sendRequestPack(`${api}messages`, {
           ...p,
           msg_id: event.d.id,
-          msg_seq: msg_seq++,
+          msg_seq: message.__meta.msg_seq++,
         })
       }
       return lastRes
@@ -226,11 +232,11 @@ const GroupMessage = async (event, bot) => {
       return bot._sendRequestPack(`${api}messages`, {
         ...pack,
         msg_id: event.d.id,
-        msg_seq: msg_seq++,
+        msg_seq: message.__meta.msg_seq++,
       })
     }
   }
-  return {
+  const message = {
     type: 'GroupMessage',
     messageId: messageId++,
     sender, messageChain,
@@ -239,8 +245,10 @@ const GroupMessage = async (event, bot) => {
     __meta: {
       api,
       msg_id: id,
+      msg_seq: 0,
     },
   }
+  return message
 }
 const toMiraiEvent = (event, bot) => {
   if (typeof event !== 'object' || event === null) return null
