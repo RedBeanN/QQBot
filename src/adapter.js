@@ -145,6 +145,11 @@ const createAdapter = ({
         // msg_id: message.__meta.msg_id,
       })
     },
+    async getAvatar (senderId = 0) {
+      const realId = await idmap.getRealId(senderId)
+      if (typeof realId !== 'string') return null
+      return `https://q.qlogo.cn/qqapp/${appId}/${realId}/640`
+    },
     auth () { },
     verify () { },
     release () { return unsupport('release')},
