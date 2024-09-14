@@ -105,6 +105,11 @@ class QQBot {
       // https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/error-trace/websocket.html
       if (code === 4009) {
         this.init()
+      } else if (code === 4908) {
+        // Resume duplicate
+        // 直接重连
+        this.initted = false
+        this.init()
       } else {
         console.error(`WSClient closed with code ${code}: ${msg.toString()}`)
         throw new Error('Abort: WS Client Closed.')
@@ -116,6 +121,7 @@ class QQBot {
       this._sendHeartBeat()
       if (this.initted) {
         this._sendResume()
+        this.resuming = false
       } else {
         this._sendIdentify()
       }
@@ -219,6 +225,10 @@ class QQBot {
     } else if (event.t === 'RESUMED') {
       this.resuming = false
       debug(`Resummed`)
+    } else if (event.op === 7) { // { op: 7, type: 'Reconnect' }
+      debug(`Server dispatch reconnect event`)
+      this._sendResume()
+      return
     }
     if (this.eventHandlers.has(op)) {
       let stopped = false
