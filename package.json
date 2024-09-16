@@ -1,5 +1,5 @@
 {
-  "name": "qqbot-mirai",
+  "name": "node-qqbot",
   "version": "1.0.0",
   "description": "QQBot adapter for node-mirai",
   "main": "index.js",
