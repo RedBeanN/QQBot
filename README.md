@@ -1,5 +1,7 @@
 # Node-QQBot
 
+[![NPM Version](https://img.shields.io/npm/v/node-qqbot)](https://www.npmjs.com/package/node-qqbot)
+
 腾讯官方 [QQ 机器人](https://bot.q.qq.com/wiki/#) 平台 API 的 `NodeJS` 实现, 接口大致与 [`node-mirai-sdk`](https://github.com/RedBeanN/node-mirai) 相仿
 
 ## 快速入门
