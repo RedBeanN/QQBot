@@ -21,13 +21,13 @@ class QQBot {
    * @param { object } config
    * @param { string } config.appId
    * @param { string } config.clientSecret
-   * @param { string } config.tmpdir
-   * @param { number } config.serverPort
+   * @param { number } config.server
    * @param { boolean } [config.isPrivate]
    */
   constructor ({
     appId,
     clientSecret,
+    server,
     isPrivate = false,
   }) {
     this[symAppId] = appId
@@ -42,6 +42,7 @@ class QQBot {
     this.sessionId = ''
     this.initted = false
     this.resuming = false
+    this.server = server || '127.0.0.1'
     this.init()
   }
   get intents () {
@@ -117,7 +118,7 @@ class QQBot {
     })
     const onHello = (event) => {
       debug('onHello', event)
-      this.off(onHello)
+      this.off(OpCode.Hello, onHello)
       this._sendHeartBeat()
       if (this.initted) {
         this._sendResume()
@@ -132,6 +133,7 @@ class QQBot {
         this.refreshAccessToken()
         this._sendHeartBeat()
       }, interval)
+      setTimeout(() => this._sendHeartBeat(), 500)
       this.initted = true
     }
     this.on(OpCode.Hello, onHello)
@@ -144,7 +146,7 @@ class QQBot {
         'X-Union-Appid': this[symAppId]
       }
     }).catch(e => {
-      console.log(e?.response?.data)
+      // console.log(e?.response?.data)
       return {
         data: {
           error: true
@@ -227,9 +229,10 @@ class QQBot {
       debug(`Resummed`)
     } else if (event.op === 7) { // { op: 7, type: 'Reconnect' }
       debug(`Server dispatch reconnect event`)
-      this._sendResume()
+      // this._sendResume()
       return
     }
+    // console.log('EVT', event)
     if (this.eventHandlers.has(op)) {
       let stopped = false
       event.stop = () => {

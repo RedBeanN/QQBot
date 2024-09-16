@@ -3,11 +3,12 @@ const QQBot = require(".")
 const { toMiraiEvent } = require("./toMiraiEvent")
 const { OpCode } = require("./types")
 const { readFileSync, existsSync, mkdirSync, copyFileSync, writeFileSync, createWriteStream } = require('fs')
-const { randomBytes } = require('crypto')
+const { randomBytes, createHash } = require('crypto')
 const { resolve } = require('path')
 const initServer = require('./server')
 const idmap = require('./db/idmap')
 
+const md5 = str => createHash('md5').update(str).digest('hex')
 const unsupport = (msg) => {
   console.warn(`Unsupported method ${msg}`)
 }
@@ -59,6 +60,7 @@ const createAdapter = ({
   const bot = new QQBot({
     appId,
     clientSecret,
+    server: server.host,
     isPrivate,
   })
   if (!existsSync(tmpdir)) {
@@ -107,25 +109,32 @@ const createAdapter = ({
      * @param { NodeMirai.message } message
      */
     async uploadImage (image, message) {
-      const imageId = randomBytes(8).toString('hex')
-      const url = `http://${server.host}:${server.port}/image/${imageId}`
-      const localPath = resolve(tmpdir, imageId)
-      const moved = await moveFileTo(image, localPath)
-      // const toUpload = typeof image === 'string'
-      //   ? readFileSync(image, 'base64url')
-      //   : image instanceof Buffer
-      //     ? image.toString('base64url')
-      //     : (await streamToBuffer(image)).toString('base64url')
-      const res = await bot._sendRequestPack(`${message.__meta.api}files`, {
+      const toUpload = typeof image === 'string'
+        ? readFileSync(image, 'base64')
+        : image instanceof Buffer
+          ? image.toString('base64')
+          : (await streamToBuffer(image)).toString('base64')
+      const imageId = await bot._sendRequestPack(`${message.__meta.api}files`, {
         file_type: 1,
-        url,
         srv_send_msg: false,
+        file_data: toUpload,
       })
-      // console.log('__res__', res)
-      return {
-        // url,
-        imageId: res,
-      }
+      return { imageId }
+      // Old version: use url. Tencent will use this url to download image.
+      // const imageId = randomBytes(8).toString('hex')
+      // const url = `http://${server.host}:${server.port}/image/${imageId}`
+      // const localPath = resolve(tmpdir, imageId)
+      // const moved = await moveFileTo(image, localPath)
+      // const res = await bot._sendRequestPack(`${message.__meta.api}files`, {
+      //   file_type: 1,
+      //   url,
+      //   srv_send_msg: false,
+      // })
+      // // console.log('__res__', res)
+      // return {
+      //   // url,
+      //   imageId: res,
+      // }
     },
     async sendImageMessage (image, message) {
       const img = await this.uploadImage(image, message)

@@ -5,6 +5,7 @@ const debug = require('debug')('mirai-event')
 
 const getApi = require('./getApi')
 const idmap = require('./db/idmap')
+const urlmap = require('./db/urlmap')
 
 let messageId = 1
 
@@ -12,7 +13,6 @@ const toMiraiMessage = (content = '', attachments = []) => {
   const messages = []
   if (content) messages.push(Plain(content))
   for (const att of attachments) {
-    console.log(att)
     if (att.content_type.startsWith('image')) {
       const { url, width, height, size } = att
       messages.push({
@@ -63,10 +63,21 @@ const fromMiraiMessage = messages => {
   }
   return ret
 }
-const replyPack = messages => {
+const escapeUrls = async (msg = '', host = '') => {
+  const matches = msg.match(/(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g)
+  if (!matches) return msg
+  // console.log(matches)
+  for (const str of matches) {
+    const hash = await urlmap.getHash(str.startsWith('http') ? str : 'http://' + str)
+    const url = `https://${host}/url/${hash}`
+    msg = msg.replace(str, url)
+  }
+  return msg
+}
+const replyPack = async (messages, server) => {
   if (typeof messages === 'string') {
     return {
-      content: messages,
+      content: await escapeUrls(messages, server),
       msg_type: 0
     }
   }
@@ -102,7 +113,7 @@ const replyPack = messages => {
   }
   return {
     msg_type: 0,
-    content,
+    content: await escapeUrls(content, server),
   }
 }
 const ChannelMessage = (event, bot) => {
@@ -129,8 +140,8 @@ const ChannelMessage = (event, bot) => {
       name: author.username,
       remark: author.username
     }
-  const reply = msg => {
-    const pack = fromMiraiMessage(msg)
+  const reply = async msg => {
+    const pack = await fromMiraiMessage(msg)
     const url = `${getApi(event)}messages`
     return bot._sendRequestPack(url, {
       ...pack,
@@ -163,7 +174,7 @@ const FriendMessage = async (event, bot) => {
   }
   const api = getApi(event)
   const reply = async msg => {
-    const pack = replyPack(msg)
+    const pack = await replyPack(msg, bot.server)
     if (Array.isArray(pack)) {
       let lastRes = null
       for (const p of pack) {
@@ -217,7 +228,7 @@ const GroupMessage = async (event, bot) => {
     },
   }
   const reply = async msg => {
-    const pack = replyPack(msg)
+    const pack = await replyPack(msg, bot.server)
     if (Array.isArray(pack)) {
       let lastRes = null
       for (const p of pack) {
@@ -278,4 +289,8 @@ const toMiraiEvent = (event, bot) => {
 module.exports = {
   toMiraiEvent,
   fromMiraiMessage,
+}
+if (require.main === module) {
+  const server = require('../config').server
+  escapeUrls(process.argv[2] || 'baidu.com', `${server.host}`).then(console.log)
 }

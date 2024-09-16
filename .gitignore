@@ -3,3 +3,4 @@ test
 test.*
 tmp
 *.sqlite
+config.js
