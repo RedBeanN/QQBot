@@ -68,6 +68,9 @@ const escapeUrls = async (msg = '', host = '') => {
   if (!matches) return msg
   // console.log(matches)
   for (const str of matches) {
+    if (str.includes(host)) {
+      continue
+    }
     const hash = await urlmap.getHash(str.startsWith('http') ? str : 'http://' + str)
     const url = `https://${host}/url/${hash}`
     msg = msg.replace(str, url)
