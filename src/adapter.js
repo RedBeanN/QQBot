@@ -56,12 +56,14 @@ const createAdapter = ({
     port: 80,
   },
   isPrivate = false,
+  sandbox = false,
 }) => {
   const bot = new QQBot({
     appId,
     clientSecret,
     server: server.host,
     isPrivate,
+    sandbox,
   })
   if (!existsSync(tmpdir)) {
     mkdirSync(tmpdir, { recursive: true })
@@ -119,7 +121,10 @@ const createAdapter = ({
         srv_send_msg: false,
         file_data: toUpload,
       })
-      return { imageId }
+      return {
+        type: 'Image',
+        imageId,
+      }
       // Old version: use url. Tencent will use this url to download image.
       // const imageId = randomBytes(8).toString('hex')
       // const url = `http://${server.host}:${server.port}/image/${imageId}`

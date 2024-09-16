@@ -6,7 +6,6 @@ const { getClient } = require('./auth/getGateway')
 const { OpCode } = require('./types')
 const { resolve } = require('path')
 
-const isDev = !!process.env.DEV
 const debug = require('debug')('qqbot')
 
 const symAppId = Symbol('appId')
@@ -23,15 +22,18 @@ class QQBot {
    * @param { string } config.clientSecret
    * @param { number } config.server
    * @param { boolean } [config.isPrivate]
+   * @param { boolean } [config.sandbox]
    */
   constructor ({
     appId,
     clientSecret,
     server,
     isPrivate = false,
+    sandbox = false,
   }) {
     this[symAppId] = appId
     this[symSecret] = clientSecret
+    this.sandboxMode = sandbox
     this.accessToken = ''
     this.accessTokenExpires = Date.now()
     /** @type { Map<number, Handler[]> } */
@@ -139,14 +141,14 @@ class QQBot {
     this.on(OpCode.Hello, onHello)
   }
   async _sendRequestPack (url, pack) {
-    debug('_sendRequestPack', url, pack)
-    const { data } = await axios.post(`https://${isDev ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack, {
+    debug('_sendRequestPack', `https://${this.sandboxMode ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack)
+    const { data } = await axios.post(`https://${this.sandboxMode ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack, {
       headers: {
         Authorization: `QQBot ${this.accessToken}`,
         'X-Union-Appid': this[symAppId]
       }
     }).catch(e => {
-      // console.log(e?.response?.data)
+      console.log(e?.response?.data)
       return {
         data: {
           error: true

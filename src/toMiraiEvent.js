@@ -84,32 +84,59 @@ const replyPack = async (messages, server) => {
   const attachments = []
   let content = ''
   if (Array.isArray(messages)) {
-    for (const chain of messages) {
+    for (let chain of messages) {
       if (typeof chain === 'string') {
-        content += chain
-        continue
+        chain = {
+          type: 'Plain',
+          text: chain,
+        }
       }
       switch (chain.type) {
-        case 'Plain':
-          content += chain.text
+        case 'Plain': {
+          const last = attachments[attachments.length - 1]
+          if (last && !last.content) {
+            last.content = chain.text
+          } else {
+            content += chain.text + '\n'
+          }
           break
-        case 'Image':
-          attachments.push(chain.imageId)
+        }
+        case 'Image': {
+          if (content.trim()) {
+            if (!attachments.length) {
+              attachments.push({
+                msg_type: 0,
+                content,
+              })
+              content = ''
+            } else {
+              const last = attachments[attachments.le - 1]
+              if (last && !last.content) {
+                last.content = content.trim()
+                content = ''
+              }
+            }
+          }
+          attachments.push({
+            msg_type: 7,
+            media: chain.imageId,
+            content: content.trim(),
+          })
+          content = ''
           break
+        }
       }
     }
   }
   if (attachments.length) {
-    const packs = attachments.map(media => {
-      return {
-        msg_type: 7,
-        media,
-      }
-    })
     if (content.trim()) {
-      packs[0].content = content.trim()
+      attachments.push({
+        msg_type: 0,
+        content: content.trim(),
+      })
     }
-    return packs
+    // console.log(attachments)
+    return attachments
   }
   return {
     msg_type: 0,
