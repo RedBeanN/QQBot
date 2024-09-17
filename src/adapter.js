@@ -1,4 +1,3 @@
-const NodeMirai = require("node-mirai-sdk")
 const QQBot = require(".")
 const { toMiraiEvent } = require("./toMiraiEvent")
 const { OpCode } = require("./types")
@@ -51,24 +50,28 @@ const createAdapter = ({
   appId,
   clientSecret,
   tmpdir = resolve(__dirname, 'tmp'),
+  dbdir = resolve(__dirname, 'db'),
   server = {
     host: 'localhost',
     port: 80,
+    https: null,
   },
   isPrivate = false,
   sandbox = false,
 }) => {
+  idmap._baseDir = dbdir
   const bot = new QQBot({
+    qq,
     appId,
     clientSecret,
-    server: server.host,
+    server,
     isPrivate,
     sandbox,
   })
   if (!existsSync(tmpdir)) {
     mkdirSync(tmpdir, { recursive: true })
   }
-  const urlServer = initServer(tmpdir, server.port)
+  const urlServer = initServer(tmpdir, server.port, server.https)
   bot.on(OpCode.Dispatch, async event => {
     const ev = await toMiraiEvent(event, bot)
     // console.log(event, ev)
@@ -98,7 +101,7 @@ const createAdapter = ({
     async emitEventListener (name, event) {
       if (name.endsWith('Message')) {
         for (const handler of events.message) {
-          await handler(event)
+          await handler(event, instance)
         }
       }
       if (!Array.isArray(events[name])) return
@@ -106,10 +109,6 @@ const createAdapter = ({
         await handler(event, instance)
       }
     },
-    /**
-     * @param { string|Buffer|ReadableStream } image
-     * @param { NodeMirai.message } message
-     */
     async uploadImage (image, message) {
       const toUpload = typeof image === 'string'
         ? readFileSync(image, 'base64')
@@ -185,12 +184,12 @@ const createAdapter = ({
     quoteReply () { return unsupport('quoteReply') },
     recall () { return unsupport('recall') },
     getFriendList () { return unsupport('getFriendList') },
-    getGroupList () { return unsupport('getGroupList') },
+    getGroupList () { return [] },
     getBotProfile () { return unsupport('getBotProfile') },
     getFriendProfile () { return unsupport('getFriendProfile') },
     getGroupMemberProfile () { return unsupport('getGroupMemberProfile') },
     getMessageById () { return unsupport('getMessageById') },
-    getGroupMemberList () { return unsupport('getGroupMemberList') },
+    getGroupMemberList () { return [] },
     setGroupMute () { return unsupport('setGroupMute') },
     setGroupUnmute () { return unsupport('setGroupUnmute') },
     setGroupMuteAll () { return unsupport('setGroupMuteAll') },
@@ -217,11 +216,39 @@ const createAdapter = ({
     getManager () { return unsupport('getManager') },
     registerCommand () { return unsupport('registerCommand') },
     sendCommand () { return unsupport('sendCommand') },
-    onSignal () { return unsupport('onSignal') },
+    onSignal () { },
     onCommand () { return unsupport('onCommand') },
     startListeningEvents () { return unsupport('startListeningEvents') },
-    getPlugins () { return unsupport('getPlugins') },
-    use () { return unsupport('use') },
+    // plugins
+    // 这个插件系统需要大量改进
+    plugins: [],
+    getPlugins () {
+      return this.plugins.map(i => i.name);
+    },
+    use (plugin) {
+      if (!plugin.name || typeof plugin.name !== 'string' || plugin.name.length === 0) throw new Error(`[NodeMirai] Invalid plugin name ${plugin.name}. Plugin name must be a string.`);
+      if (!plugin.callback || typeof plugin.callback !== 'function') throw new Error('[NodeMirai] Invalid plugin callback. Plugin callback must be a function.');
+      if (this.getPlugins().includes(plugin.name)) throw new Error(`[NodeMirai] Duplicate plugin name ${plugin.name}`);
+      this.plugins.push(plugin);
+      // TODO: support string[]
+      const event = typeof plugin.subscribe === 'string' ? plugin.subscribe : 'message';
+      this.on(event, plugin.callback);
+      console.log(`[NodeMirai] Installed plugin [ ${plugin.name} ]`);
+    },
+    remove (pluginName) {
+      const pluginNames = this.getPlugins();
+      if (pluginNames.includes(pluginName)) {
+        const plugin = this.plugins[pluginNames.indexOf(pluginName)];
+        for (let event in this.eventListeners) {
+          for (let i in this.eventListeners[event]) {
+            if (this.eventListeners.message[i] === plugin.callback) {
+              this.eventListeners.message.splice(i, 1);
+              console.log(`[NodeMirai] Uninstalled plugin [ ${plugin.name} ]`);
+            }
+          }
+        }
+      }
+    }
   }
   return instance
 }

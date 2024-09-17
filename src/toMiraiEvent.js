@@ -1,6 +1,3 @@
-const { MessageComponent } = require('node-mirai-sdk')
-const { Plain } = MessageComponent
-
 const debug = require('debug')('mirai-event')
 
 const getApi = require('./getApi')
@@ -11,7 +8,7 @@ let messageId = 1
 
 const toMiraiMessage = (content = '', attachments = []) => {
   const messages = []
-  if (content) messages.push(Plain(content))
+  if (content) messages.push({ type: 'Plain', text: content })
   for (const att of attachments) {
     if (att.content_type.startsWith('image')) {
       const { url, width, height, size } = att
@@ -46,7 +43,7 @@ const fromMiraiMessage = messages => {
   for (const m of messages) {
     switch (m.type) {
       case 'Plain':
-        content += Plain.value(m)
+        content += m.text
         break
       case 'Image':
         if (image) break

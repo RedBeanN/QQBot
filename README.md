@@ -34,13 +34,18 @@ const bot = new Bot({
   qq,
   appId,
   clientSecret,
+  // 临时文件保存的位置
   tmpdir: resolve(__dirname, 'tmp'),
-  /**
-   * 用于发送 url, 需要 ssl, TODO
-   */
+  // idmap和urlmap保存的位置
+  dbdir = resolve(__dirname, 'db'),
+  // 用于发送 url, 需要 ssl, 非443端口/非https需要自行设置转发
   server: {
-    host: 'localhost',
-    port: 80,
+    host: 'server_address',
+    port: 443,
+    https: {
+      crt: resolve(__dirname, 'my_https_keys/server_address.crt'),
+      key: resolve(__dirname, 'my_https_keys/server_address.key'),
+    }
   },
   isPrivate: false,
   // 新创建的机器人强制公网ip, 开发时需要设置sandbox=true才能在非公网环境下连接
@@ -102,6 +107,8 @@ node index.js
 
 ```js
 const idmap = require('node-qqbot/src/db/idmap')
+// 如果你修改了机器人配置中的 dbdir, 则需要先传入 _baseDir
+// idmap._baseDir = '...'
 // 获取 int id 对应的 openid
 const realId = await idmap.getRealId(12345)
 // 获取 openid 对应的 int id, 如果不存在会立即创建一个新的 int id
@@ -109,6 +116,8 @@ const virtualId = await idmap.getVirtualId('ABCDABCD')
 // 更新 int id, 原本 id 是 12345 的用户现在会变成 23456
 await idmap.updateVirtualId(12345, 23456)
 ```
+
+`node-qqbot` 内部使用 `sqlite3` 存储这些数据, 如果需要修改数据库, 你可以自行引入 `sqlite3` 进行操作.
 
 ### 关于 `urlmap`
 
@@ -119,16 +128,16 @@ const bot = new Bot({
   server: {
     host: 'server_address',
     port: 443,
-    certs: {
-      key: './https.key',
-      crt: './https.crt'
+    https: {
+      key: '/path/to/your/https.key',
+      crt: '/path/to/your/https.crt',
     }
   },
   // ...
 })
 ```
 
-由于官方强制 https, 你需要自建 https 服务并把 `/url` 重定向到对应的 `${server.host}:${server.port}/url`, 或者传入 `https` 证书由 `QQBot` 处理.
+由于官方强制 https, 你需要传入 `https` 证书, 或者自建 https 服务并把 `/url` 重定向到对应的 `${server.host}:${server.port}/url`.
 
 请注意: 你的 `server_address` 必须是已ICP备案的域名, 且 ssl 证书不能过期.
 *邮箱也会被当成url, 别发*
@@ -137,6 +146,8 @@ const bot = new Bot({
 
 ```js
 const urlmap = require('node-qqbot/src/db/urlmap')
+// 如果你修改了机器人配置中的 dbdir, 则需要先传入 _baseDir
+// urlmap._baseDir = '...'
 // 获取 url 对应的 hash, 没有会创建新的
 const hash = await urlmap.getHash(url)
 // 获取 hash 对应的 url, 没有找到时返回的是 { error: true }

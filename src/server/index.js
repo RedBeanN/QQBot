@@ -1,10 +1,11 @@
 const express = require('express')
 const urlmap = require('../db/urlmap')
 const { resolve } = require('path')
-const { existsSync, unlink } = require('fs')
+const { existsSync, unlink, readFileSync } = require('fs')
+const { createServer } = require('https')
 
 const debug = require('debug')('apiserver')
-const initServer = (tmpdir = resolve(__dirname, 'tmp'), port = 25635) => {
+const initServer = (tmpdir = resolve(__dirname, 'tmp'), port = 25635, credentials) => {
   const app = express()
   app.get('/url/:hash', async (req, res) => {
     debug('[Server]', 'url', req.params.hash)
@@ -27,6 +28,15 @@ const initServer = (tmpdir = resolve(__dirname, 'tmp'), port = 25635) => {
     res.sendFile(filepath)
     res.on('close', () => setTimeout(() => unlink(filepath, () => {}), 1000))
   })
-  app.listen(port)
+  if (typeof credentials === 'object' && credentials.crt && credentials.key) {
+    const options = {
+      cert: readFileSync(credentials.crt).toString(),
+      key: readFileSync(credentials.key).toString(),
+    }
+    const server = createServer(options, app)
+    server.listen(port)
+  } else {
+    app.listen(port)
+  }
 }
 module.exports = initServer

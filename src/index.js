@@ -18,13 +18,15 @@ const symSecret = Symbol('clientSecret')
 class QQBot {
   /**
    * @param { object } config
+   * @param { number } config.qq
    * @param { string } config.appId
    * @param { string } config.clientSecret
-   * @param { number } config.server
+   * @param { { host: string, port: number, https: any } } config.server
    * @param { boolean } [config.isPrivate]
    * @param { boolean } [config.sandbox]
    */
   constructor ({
+    qq,
     appId,
     clientSecret,
     server,
@@ -33,6 +35,7 @@ class QQBot {
   }) {
     this[symAppId] = appId
     this[symSecret] = clientSecret
+    this.qq = qq
     this.sandboxMode = sandbox
     this.accessToken = ''
     this.accessTokenExpires = Date.now()
@@ -44,7 +47,20 @@ class QQBot {
     this.sessionId = ''
     this.initted = false
     this.resuming = false
-    this.server = server || '127.0.0.1'
+    if (!server) {
+      this.server = '127.0.0.1'
+    } else {
+      this.server = server.https ? 'https://' : 'http://'
+      this.server += server.host
+      if (server.https) {
+        if (server.port !== 443) {
+          this.server += `:${server.port}`
+        }
+      } else if (server.port !== 80) {
+        this.server += `:${server.port}`
+      }
+    }
+    debug(`Bot Api Server: ${this.server}`)
     this.init()
   }
   get intents () {
@@ -242,7 +258,7 @@ class QQBot {
       }
       const handlers = this.eventHandlers.get(op)
       for (const handler of handlers) {
-        await handler(event)
+        await handler(event, this)
         if (stopped) break
       }
     }
