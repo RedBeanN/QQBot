@@ -1,11 +1,12 @@
 const QQBot = require(".")
 const { toMiraiEvent } = require("./toMiraiEvent")
 const { OpCode } = require("./types")
-const { readFileSync, existsSync, mkdirSync, copyFileSync, writeFileSync, createWriteStream } = require('fs')
+const { readFileSync, existsSync, mkdirSync, copyFileSync, writeFileSync, createWriteStream, createReadStream } = require('fs')
 const { randomBytes, createHash } = require('crypto')
-const { resolve } = require('path')
+const { resolve, basename, extname } = require('path')
 const initServer = require('./server')
 const idmap = require('./db/idmap')
+const { Readable } = require('stream')
 
 const md5 = str => createHash('md5').update(str).digest('hex')
 const unsupport = (msg) => {
@@ -67,6 +68,7 @@ const createAdapter = ({
     server,
     isPrivate,
     sandbox,
+    tmpdir,
   })
   if (!existsSync(tmpdir)) {
     mkdirSync(tmpdir, { recursive: true })
@@ -88,8 +90,14 @@ const createAdapter = ({
       return
     },
     on (name, callback) {
-      if (name === 'message') return instance.onMessage(callback)
-      return instance.onEvent(name, callback)
+      switch (name) {
+        case 'groupAdd':
+          return instance.onEvent('joinGroup', callback)
+        case 'groupDelete':
+          return instance.onEvent('leaveKick', callback)
+        default:
+          return instance.onEvent(name, callback)
+      }
     },
     onMessage (callback) {
       return instance.onEvent('message', callback)
@@ -110,6 +118,34 @@ const createAdapter = ({
       }
     },
     async uploadImage (image, message) {
+      if (message.__meta.api.includes('/channels/') || message.__meta.api?.includes('/dms')) {
+        // use multipart/form-data to upload
+        const toUpload = typeof image === 'string'
+          ? createReadStream(image)
+          : image instanceof Buffer
+            ? Readable.from(image)
+            : image
+        return {
+          type: 'Image',
+          url: toUpload,
+        }
+      }
+      // if (message.__meta.api?.includes('/dms')) {
+      //   const uid = randomBytes(8).toString('hex')
+      //   const imageId = typeof image === 'string'
+      //     ? uid + extname(image)
+      //     : uid + '.png'
+      //   const dist = resolve(tmpdir, imageId)
+      //   const toUpload = typeof image === 'string'
+      //     ? copyFileSync(image, dist)
+      //     : image instanceof Buffer
+      //       ? writeFileSync(dist, image)
+      //       : writeFileSync(dist, (await streamToBuffer(image)))
+      //   return {
+      //     type: 'Image',
+      //     url: `https://${bot.server}/image/${imageId}`,
+      //   }
+      // }
       const toUpload = typeof image === 'string'
         ? readFileSync(image, 'base64')
         : image instanceof Buffer
@@ -142,14 +178,18 @@ const createAdapter = ({
     },
     async sendImageMessage (image, message) {
       const img = await this.uploadImage(image, message)
-      return bot._sendRequestPack(`${message.__meta.api}messages`, {
+      const pack = message.__meta.api?.includes('/channel') || message.__meta.api?.includes('/dms') ? {
+        file_image: img.url,
+        msg_id: message.__meta.msg_id,
+      } : {
         // content: ' ',
         msg_type: 7,
         // media: img.imageId,
         media: img.imageId,
         msg_id: message.__meta.msg_id,
         msg_seq: message.__meta.msg_seq++,
-      })
+      }
+      return bot._sendRequestPack(`${message.__meta.api}messages`, pack)
     },
     async sendMarkdown (md, message) {
       const api = message.__meta.api

@@ -20,13 +20,13 @@ const initServer = (tmpdir = resolve(__dirname, 'tmp'), port = 25635, credential
     return res.redirect(301, realUrl)
   })
   app.get('/image/:imageId', async (req, res) => {
-    debug('[Server]', 'image', req.params.imageId)
     const filepath = resolve(tmpdir, req.params.imageId)
+    debug('[Server]', 'image', req.params.imageId, filepath)
     if (!existsSync(filepath)) {
       return res.status(404).end('404 Not Found')
     }
     res.sendFile(filepath)
-    res.on('close', () => setTimeout(() => unlink(filepath, () => {}), 1000))
+    // res.on('close', () => setTimeout(() => unlink(filepath, () => {}), 1000))
   })
   if (typeof credentials === 'object' && credentials.crt && credentials.key) {
     const options = {

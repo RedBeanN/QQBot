@@ -4,7 +4,8 @@ const getAccessToken = require('./auth/getAccessToken')
 const getGateway = require('./auth/getGateway')
 const { getClient } = require('./auth/getGateway')
 const { OpCode } = require('./types')
-const { resolve } = require('path')
+const { resolve, basename } = require('path')
+const FormData = require('form-data')
 
 const debug = require('debug')('qqbot')
 
@@ -50,22 +51,22 @@ class QQBot {
     if (!server) {
       this.server = '127.0.0.1'
     } else {
-      this.server = server.https ? 'https://' : 'http://'
-      this.server += server.host
-      if (server.https) {
-        if (server.port !== 443) {
-          this.server += `:${server.port}`
-        }
-      } else if (server.port !== 80) {
-        this.server += `:${server.port}`
-      }
+      // this.server = server.https ? 'https://' : 'http://'
+      this.server = server.host
+      // if (server.https) {
+      //   if (server.port !== 443) {
+      //     this.server += `:${server.port}`
+      //   }
+      // } else if (server.port !== 80) {
+      //   this.server += `:${server.port}`
+      // }
     }
     debug(`Bot Api Server: ${this.server}`)
     this.init()
   }
   get intents () {
     // const vals = [0, 1, 10, 12, 26, 27, 29]
-    const vals = [0]
+    const vals = [0, 12]
     if (this.isPrivate) {
       vals.push(9, 28)
     } else {
@@ -158,12 +159,32 @@ class QQBot {
   }
   async _sendRequestPack (url, pack) {
     debug('_sendRequestPack', `https://${this.sandboxMode ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack)
-    const { data } = await axios.post(`https://${this.sandboxMode ? 'sandbox.' : ''}api.sgroup.qq.com${url}`, pack, {
-      headers: {
-        Authorization: `QQBot ${this.accessToken}`,
-        'X-Union-Appid': this[symAppId]
+    const headers = {
+      Authorization: `QQBot ${this.accessToken}`,
+      'X-Union-Appid': this[symAppId],
+    }
+    if (url.includes('/channel') || url.includes('/dms')) {
+      const form = new FormData()
+      for (const key in pack) {
+        if (pack[key]?.pipe) {
+          const filename = pack[key].path ? basename(pack[key].path) : 'test.png'
+          form.append(key, pack[key], {filename})
+        } else if (typeof pack[key] === 'object') {
+          form.append(key, JSON.stringify(pack[key]))
+        } else {
+          form.append(key, pack[key])
+        }
       }
-    }).catch(e => {
+      debug('Use formdata for channel', form)
+      pack = form
+      Object.assign(headers, form.getHeaders())
+      // console.log(headers)
+    }
+    const { data } = await axios.post(
+      `https://${this.sandboxMode ? 'sandbox.' : ''}api.sgroup.qq.com${url}`,
+      pack,
+      { headers },
+    ).catch(e => {
       console.log(e?.response?.data)
       return {
         data: {
@@ -242,6 +263,7 @@ class QQBot {
         this.sessionId = id
         this._user = event.d?.user
       }
+      this.botId = event.d?.user?.id
     } else if (event.t === 'RESUMED') {
       this.resuming = false
       debug(`Resummed`)
