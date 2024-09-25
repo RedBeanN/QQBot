@@ -1,6 +1,6 @@
 {
   "name": "node-qqbot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "QQBot adapter for node-mirai",
   "main": "index.js",
   "author": "RedBeanN",
